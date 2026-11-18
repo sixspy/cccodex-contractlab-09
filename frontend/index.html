@@ -12,8 +12,8 @@
   header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:16px}
   h1{font-family:Georgia,"Songti SC",serif;font-size:34px;margin:0;letter-spacing:.02em}
   .lede{margin-top:6px;color:#6b5b4b;max-width:46ch;line-height:1.5}
-  .steps{display:flex;gap:0;margin:18px 0 22px;border:1px solid var(--line);background:#fffaf2}
-  .steps button{flex:1;border:0;border-right:1px solid var(--line);background:transparent;padding:12px 8px;cursor:pointer;font-weight:500}
+  .steps{display:flex;gap:0;margin:18px 0 22px;border:1px solid var(--line);background:#fffaf2;flex-wrap:wrap}
+  .steps button{flex:1;border:0;border-right:1px solid var(--line);background:transparent;padding:12px 8px;cursor:pointer;font-weight:500;min-width:100px}
   .steps button:last-child{border-right:0}
   .steps button.on{background:#2a2118;color:#f7f1e6}
   .card{background:#fffaf2;border:1px solid var(--line);padding:16px 16px 8px;margin-bottom:14px}
@@ -21,7 +21,7 @@
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{border-bottom:1px solid var(--line);padding:10px 6px;text-align:left;vertical-align:top}
   th{font-size:12px;text-transform:none;color:#6b5b4b}
-  input{width:100%;border:1px solid var(--line);background:#fff;padding:9px 10px;margin:6px 0 12px;border-radius:2px}
+  input,select{width:100%;border:1px solid var(--line);background:#fff;padding:9px 10px;margin:6px 0 12px;border-radius:2px}
   .primary{background:var(--accent);color:#fff;border:0;padding:10px 14px;cursor:pointer}
   .ghost{background:transparent;border:1px solid var(--ink);padding:7px 10px;cursor:pointer}
   .login{max-width:420px;margin:14vh auto;background:#fffaf2;border:1px solid var(--line);padding:28px}
@@ -30,6 +30,10 @@
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .stamp{display:inline-block;border:1.5px solid var(--ok);color:var(--ok);padding:2px 8px;font-size:12px}
   .stamp.bad{border-color:var(--bad);color:var(--bad)}
+  .stamp.wait{border-color:var(--accent);color:var(--accent)}
+  .req{border:1px solid var(--line);background:#fff;padding:12px 14px;margin-bottom:10px}
+  .req h3{margin:0 0 6px;font-size:16px}
+  .policy li{margin-bottom:8px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -51,20 +55,23 @@ createApp({
   setup(){
     const token=ref(localStorage.getItem('contractlab_token')||'');
     const user=ref(localStorage.getItem('contractlab_user')||'');
+    const role=ref(localStorage.getItem('contractlab_role')||'');
     const username=ref('admin'), password=ref('123456'), err=ref(''), tab=ref(0), actionErr=ref('');
     const contracts=ref([]), batches=ref([]), buffers=ref([]), recon=ref({});
+    const requests=ref([]), auditRows=ref([]), reqMsg=ref('');
     const form=ref({subject:'订单入站', payload_fields:'order_id,amount'});
-    const nav=['契约版本','入站校验','双写缓冲','契约对账'];
+    const reqForm=ref({version:'', subject:'订单入站', mode:'严格', required_fields:'order_id,amount,currency'});
+    const nav=['契约版本','发布申请','审批处置','审计附页','策略说明','入站校验','双写缓冲','契约对账'];
     function auth(){return {Authorization:'Bearer '+token.value,'Content-Type':'application/json'};}
     async function login(){
       err.value='';
       const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});
       const j=await r.json(); if(!r.ok){err.value=j.detail||'登录失败';return;}
-      token.value=j.token; user.value=j.username;
-      localStorage.setItem('contractlab_token',j.token); localStorage.setItem('contractlab_user',j.username);
+      token.value=j.token; user.value=j.username; role.value=j.role;
+      localStorage.setItem('contractlab_token',j.token); localStorage.setItem('contractlab_user',j.username); localStorage.setItem('contractlab_role',j.role);
       await refresh();
     }
-    function logout(){token.value='';user.value='';localStorage.removeItem('contractlab_token');localStorage.removeItem('contractlab_user');}
+    function logout(){token.value='';user.value='';role.value='';localStorage.removeItem('contractlab_token');localStorage.removeItem('contractlab_user');localStorage.removeItem('contractlab_role');}
     async function loadJson(url){
       const r=await fetch(url,{headers:auth()});
       const j=await r.json().catch(()=>({}));
@@ -75,12 +82,16 @@ createApp({
       if(!token.value) return;
       const c=await loadJson('/api/contracts'); if(c===null) return;
       contracts.value=Array.isArray(c.items)?c.items:[];
+      const q=await loadJson('/api/publish-requests'); if(q===null) return;
+      requests.value=Array.isArray(q.items)?q.items:[];
+      const a=await loadJson('/api/audit'); if(a===null) return;
+      auditRows.value=Array.isArray(a.items)?a.items:[];
       const b=await loadJson('/api/ingress'); if(b===null) return;
       batches.value=Array.isArray(b.items)?b.items:[];
       const u=await loadJson('/api/buffers'); if(u===null) return;
       buffers.value=Array.isArray(u.items)?u.items:[];
-      const q=await loadJson('/api/reconcile'); if(q===null) return;
-      recon.value=q&&typeof q==='object'?q:{};
+      const z=await loadJson('/api/reconcile'); if(z===null) return;
+      recon.value=z&&typeof z==='object'?z:{};
     }
     async function validate(){
       actionErr.value='';
@@ -88,8 +99,22 @@ createApp({
       const j=await r.json(); actionErr.value=r.ok?('校验结果：'+j.result+(j.missing?('；缺 '+j.missing.join(',')):'')):(j.detail||'失败');
       await refresh();
     }
+    async function fileRequest(){
+      reqMsg.value='';
+      const r=await fetch('/api/publish-requests',{method:'POST',headers:auth(),body:JSON.stringify(reqForm.value)});
+      const j=await r.json().catch(()=>({}));
+      reqMsg.value=r.ok?('已提交申请 #'+j.id+'，待值班管理员审批'):(j.detail||'提交失败');
+      await refresh();
+    }
+    async function decide(id,action){
+      reqMsg.value='';
+      const r=await fetch('/api/publish-requests/'+id+'/'+action,{method:'POST',headers:auth()});
+      const j=await r.json().catch(()=>({}));
+      reqMsg.value=r.ok?('申请 #'+id+' 已处置：'+j.status):(j.detail||'处置失败');
+      await refresh();
+    }
     onMounted(()=>{if(token.value)refresh();});
-    return {token,user,username,password,err,tab,nav,contracts,batches,buffers,recon,form,actionErr,login,logout,validate};
+    return {token,user,role,username,password,err,tab,nav,contracts,batches,buffers,recon,requests,auditRows,reqForm,reqMsg,form,actionErr,login,logout,validate,fileRequest,decide};
   },
   template:`
   <div v-if="!token" class="login">
@@ -104,17 +129,86 @@ createApp({
         <h1>入站契约</h1>
         <div class="lede">Schema 版本约束入站校验，破坏性变更缓冲或拒收，并与落库结果对账。</div>
       </div>
-      <div class="meta">{{user}} · 本地 SQLite<br/><button class="ghost" style="margin-top:8px" @click="logout">退出</button></div>
+      <div class="meta">{{user}} · {{role}} · 本地 SQLite<br/><button class="ghost" style="margin-top:8px" @click="logout">退出</button></div>
     </header>
     <div class="steps"><button v-for="(n,i) in nav" :key="n" :class="{on:tab===i}" @click="tab=i">{{i+1}}. {{n}}</button></div>
+
     <div class="card" v-show="tab===0">
-      <h2>现行契约</h2>
+      <h2>版本目录 · 现行契约</h2>
+      <p class="meta">新版本启用须走「发布申请 → 审批处置」，由服务端切换正式指针；直发入口已按发布鉴权册关闭。</p>
       <table><thead><tr><th>版本</th><th>主题</th><th>模式 / 轨</th><th>状态</th><th>必填字段</th></tr></thead>
       <tbody><tr v-for="c in contracts" :key="c.id">
         <td>{{c.version}}</td><td>{{c.subject}}</td><td>{{c.mode}} / {{c.track}}</td><td>{{c.status}}</td><td>{{c.required_fields}}</td>
       </tr></tbody></table>
     </div>
-    <div class="pair" v-show="tab===1">
+
+    <div v-show="tab===1">
+      <div class="card">
+        <h2>提交发布申请</h2>
+        <p class="meta">任何登录账号（含只读）均可填申请单；申请在审批办结前不触碰版本目录。</p>
+        <div class="pair">
+          <div><label>版本号</label><input v-model="reqForm.version" placeholder="如 v9"/></div>
+          <div><label>主题</label><input v-model="reqForm.subject"/></div>
+        </div>
+        <div class="pair">
+          <div><label>模式</label><select v-model="reqForm.mode"><option>严格</option><option>兼容</option></select></div>
+          <div><label>必填字段（逗号分隔）</label><input v-model="reqForm.required_fields"/></div>
+        </div>
+        <button class="primary" @click="fileRequest">提交申请单</button>
+        <div class="err">{{reqMsg}}</div>
+      </div>
+      <div class="card">
+        <h2>申请列表</h2>
+        <table><thead><tr><th>申请</th><th>版本 / 主题</th><th>模式</th><th>必填字段</th><th>申请人</th><th>状态</th><th>处置人</th></tr></thead>
+        <tbody><tr v-for="r in requests" :key="r.id">
+          <td>#{{r.id}}</td><td>{{r.version}} / {{r.subject}}</td><td>{{r.mode}}</td><td>{{r.required_fields}}</td>
+          <td>{{r.applicant}}</td>
+          <td><span class="stamp" :class="{bad:r.status==='已驳回',wait:r.status==='待审批'}">{{r.status}}</span></td>
+          <td>{{r.decided_by||'—'}}</td>
+        </tr></tbody></table>
+      </div>
+    </div>
+
+    <div class="card" v-show="tab===2">
+      <h2>审批处置</h2>
+      <p class="meta" v-if="role==='管理员'">值班管理员处置申请单：通过后由服务端原子切换正式指针；同一申请双人同时抢审批，后到仅登记审批争用。</p>
+      <p class="meta" v-else>仅值班管理员可处置（服务端鉴权，非前端隐藏）；当前角色 {{role}} 可在「发布申请」提交申请单。</p>
+      <div class="req" v-for="r in requests" :key="r.id">
+        <h3>#{{r.id}} {{r.version}} · {{r.subject}} <span class="stamp" :class="{bad:r.status==='已驳回',wait:r.status==='待审批'}">{{r.status}}</span></h3>
+        <div class="meta">模式 {{r.mode}} · 必填 [{{r.required_fields}}] · 申请人 {{r.applicant}} · {{r.created_at}}<span v-if="r.decided_by"> · 处置人 {{r.decided_by}} {{r.decided_at}}</span></div>
+        <div v-if="role==='管理员' && r.status==='待审批'" style="margin-top:8px">
+          <button class="primary" @click="decide(r.id,'approve')">通过并启用</button>
+          <button class="ghost" style="margin-left:8px" @click="decide(r.id,'reject')">驳回</button>
+        </div>
+      </div>
+      <div v-if="!requests.length" class="meta">暂无申请单。</div>
+      <div class="err">{{reqMsg}}</div>
+    </div>
+
+    <div class="card" v-show="tab===3">
+      <h2>审计附页</h2>
+      <p class="meta">鉴权偏离拦截、发布申请、审批办结与审批争用全量留痕。</p>
+      <table><thead><tr><th>时间</th><th>账号</th><th>动作</th><th>详情</th></tr></thead>
+      <tbody><tr v-for="a in auditRows" :key="a.id">
+        <td>{{a.created_at}}</td><td>{{a.actor}}</td>
+        <td><span class="stamp" :class="{bad:a.action==='鉴权偏离拦截',wait:a.action==='审批争用'}">{{a.action}}</span></td>
+        <td>{{a.detail}}</td>
+      </tr></tbody></table>
+    </div>
+
+    <div class="card" v-show="tab===4">
+      <h2>策略说明 · 发布鉴权册（乙路径）</h2>
+      <ul class="policy">
+        <li>发布写入口仅一径：提交申请单 → 值班管理员审批 → <b>服务端</b>切换正式指针（新版启用、同主题旧正式版停用）。</li>
+        <li>只读账号可提交申请单；不得直发启用、不得审批。只读令牌直发或审批 → 403 零写入，记「鉴权偏离拦截」。</li>
+        <li>直发入口 <code>POST /api/contracts/publish</code> 已关闭，任何角色调用一律 403 并记鉴权偏离。</li>
+        <li>同一申请两名值班同时抢审批：状态机原子认领排队，先到办结，后到 409 并记「审批争用」。</li>
+        <li>鉴权页序：登录态(401) → 角色(403 记偏离) → 资源(404) → 状态机(409 记争用)。前端隐藏按钮不构成鉴权。</li>
+        <li>登记于 <code>docs/publish-authz-registry.md</code>（2026-11-18 选定乙路径，当日不改口）。</li>
+      </ul>
+    </div>
+
+    <div class="pair" v-show="tab===5">
       <div class="card">
         <h2>提交入站</h2>
         <label>主题</label><input v-model="form.subject"/>
@@ -132,12 +226,12 @@ createApp({
         </tr></tbody></table>
       </div>
     </div>
-    <div class="card" v-show="tab===2">
+    <div class="card" v-show="tab===6">
       <h2>双写缓冲</h2>
       <table><thead><tr><th>缓冲</th><th>批次</th><th>主题</th><th>原因</th></tr></thead>
       <tbody><tr v-for="b in buffers" :key="b.id"><td>{{b.id}}</td><td>{{b.batch_id}}</td><td>{{b.subject}}</td><td>{{b.reason}}</td></tr></tbody></table>
     </div>
-    <div class="card" v-show="tab===3">
+    <div class="card" v-show="tab===7">
       <h2>契约对账摘要</h2>
       <p>入站 {{recon.ingress_total}} · 通过 {{recon.passed}} · 缓冲 {{recon.buffered}} · 拒收 {{recon.rejected}} · 缓冲行 {{recon.buffer_rows}} · 对齐 {{recon.aligned}}</p>
     </div>

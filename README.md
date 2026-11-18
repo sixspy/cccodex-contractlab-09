@@ -16,7 +16,17 @@ Schema 契约版本约束入站校验，破坏性变更进缓冲或拒收，并�
 | 领域建议 | 数据采集、爬虫与 RPA |
 | 接口 | http://127.0.0.1:10719 |
 | 库 | `data/app.db` |
-| 账号 | admin / 123456 |
+| 账号 | admin / 123456（管理员）、admin2 / admin123（管理员）、viewer / view123（只读） |
+
+## 发布鉴权（乙路径，登记于 `docs/publish-authz-registry.md`）
+
+发布写入口必须鉴权，落点在服务端唯一一径，前端隐藏按钮不构成鉴权：
+
+- 任何登录账号（含只读）可 `POST /api/publish-requests` 提交发布申请单；申请不触碰版本目录。
+- 值班管理员 `POST /api/publish-requests/{id}/approve` 审批办结后，**服务端**原子切换正式指针（新版启用、同主题旧正式版停用）；`/reject` 驳回。
+- 直发入口 `POST /api/contracts/publish` 已关闭：任何角色一律 403 零写入，并记审计「鉴权偏离拦截」。
+- 同一申请两名值班同时抢审批：状态机原子认领排队，先到办结，后到 409 并记审计「审批争用」。
+- 审计附页 `GET /api/audit`；申请列表 `GET /api/publish-requests`。
 
 ## 为何能出多题
 
